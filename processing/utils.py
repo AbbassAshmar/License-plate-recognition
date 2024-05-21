@@ -1,9 +1,47 @@
 import numpy as np
 import cv2 as cv
 
+def calculate_length(line):
+    x1, y1, x2, y2 = line[0]
+    return np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+
+def calculate_angle(line):
+    x1, y1, x2, y2 = line[0]
+    return np.arctan2(y2 - y1, x2 - x1) * 180. / np.pi
+
+def order_points(pts):
+    rect = np.zeros((4, 2), dtype="float32")
+    points = np.array(pts[0])
+    s = points.sum(axis=1)
+    rect[0] = points[np.argmin(s)]
+    rect[2] = points[np.argmax(s)]
+    diff = np.diff(points, axis=1)
+    rect[1] = points[np.argmin(diff)]
+    rect[3] = points[np.argmax(diff)]
+    return rect
+
+def four_point_transform(image, pts):
+    rect = order_points(pts)
+    (tl, tr, br, bl) = rect
+    widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+    widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+    maxWidth = max(int(widthA), int(widthB))
+    heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+    heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+    maxHeight = max(int(heightA), int(heightB))
+    dst = np.array([
+        [0, 0],
+        [maxWidth - 1, 0],
+        [maxWidth - 1, maxHeight - 1],
+        [0, maxHeight - 1]], dtype="float32")
+    M = cv.getPerspectiveTransform(rect, dst)
+    warped = cv.warpPerspective(image, M, (maxWidth, maxHeight))
+    return warped
+
 def perform_processing(image: np.ndarray) -> str:
 
     resized_image = cv.resize(image, (1920, 1080))
+    clear_resized_image = resized_image.copy()
     bw_image = cv.cvtColor(resized_image, cv.COLOR_BGR2GRAY)
     hsv_image = cv.cvtColor(resized_image, cv.COLOR_BGR2HSV)
     empty = np.zeros_like(resized_image)
@@ -44,7 +82,7 @@ def perform_processing(image: np.ndarray) -> str:
 
     # Draw contours
     cv.drawContours(resized_image, contours, -1, (0, 255, 0), 2)
-    cv.drawContours(empty, contours, -1, (255, 255, 255), cv.FILLED)
+    #cv.drawContours(empty, contours, -1, (255, 255, 255), cv.FILLED)
 
 
     # Detect edges on bw image
@@ -63,6 +101,7 @@ def perform_processing(image: np.ndarray) -> str:
 
     rectangular_contours = []
     xb, yb, wb, hb = cv.boundingRect(blue_contour)
+    boxes = {}
     for contour in edge_contours:
         if cv.contourArea(contour) < 10e4:
             continue
@@ -73,16 +112,35 @@ def perform_processing(image: np.ndarray) -> str:
         x, y, w, h = cv.boundingRect(contour)
         if x < xb or x > xb + wb or y > yb + hb or y + h < yb:
             continue
-        rectangular_contours.append(contour)
+
+        _, (width, height), _ = rect
+        area = width * height
+        boxes[(tuple(box[0]), tuple(box[1]), tuple(box[2]), tuple(box[3]))] = area
+
+        approx = cv.approxPolyDP(contour, 0.01 * cv.arcLength(contour, True), True)
+        rectangular_contours.append(approx)
+
+
+    sorted_boxes = sorted(boxes.items(), key=lambda x: x[1])
+
+    warped = four_point_transform(clear_resized_image, sorted_boxes[0])
+
+    cv.imshow('warped', warped)
 
 
     for rectangle in rectangular_contours:
-        cv.drawContours(empty, [rectangle], -1, (255, 255, 255), cv.FILLED)
+        cv.drawContours(empty, [rectangle], -1, (255, 255, 255), 1)
         cv.drawContours(resized_image, [rectangle], -1, (255, 255, 255), cv.FILLED)
 
-    kernel = np.ones((11, 11), np.uint8)
-    empty = cv.morphologyEx(empty, cv.MORPH_CLOSE, kernel)
-    cv.imshow('empty', empty)
+
+
+
+    # corners = cv.goodFeaturesToTrack(empty, 8, 0.01, 70)
+    # corners = np.int0(corners)
+    # for corner in corners:
+    #     x, y = corner.ravel()
+    #     cv.circle(resized_image, (x, y), 3, (0, 0, 255), -1)
+
 
     # rho = 1
     # theta = np.pi/180
