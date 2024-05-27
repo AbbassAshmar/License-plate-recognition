@@ -97,41 +97,77 @@ def perform_processing(image: np.ndarray) -> str:
 
     cv.imshow('edges', edges)
 
-    edge_contours, _ = cv.findContours(edges, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE)
+    edge_contours, _ = cv.findContours(edges, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
     rectangular_contours = []
     xb, yb, wb, hb = cv.boundingRect(blue_contour)
     boxes = {}
+
+    edge_contours = sorted(edge_contours, key=cv.contourArea, reverse=True)[:10]
     for contour in edge_contours:
-        if cv.contourArea(contour) < 10e4:
-            continue
-        rect = cv.minAreaRect(contour)
-        box = cv.boxPoints(rect)
-        box = np.int0(box)
-        cv.drawContours(resized_image, [box], 0, (255, 0, 0), 2)
-        x, y, w, h = cv.boundingRect(contour)
-        if x < xb or x > xb + wb or y > yb + hb or y + h < yb:
-            continue
+        # if cv.contourArea(contour) < 10e4:
+        #     continue
+        contour_len = cv.arcLength(contour, True)
+        img_for_contour = resized_image.copy()
+        approx = cv.approxPolyDP(contour, 0.0125 * contour_len, True)
+        cv.drawContours(img_for_contour, [approx], -1, (0, 0, 255), 2)
+        while True:
+            # cv.imshow('mask', mask)
+            cv.imshow('approx', img_for_contour)
+            key = cv.waitKey(0)
+            if key == ord('b'):
+                break
 
-        _, (width, height), _ = rect
-        area = width * height
-        boxes[(tuple(box[0]), tuple(box[1]), tuple(box[2]), tuple(box[3]))] = area
+        if len(approx) == 4:
+            screenCnt = approx
+            break
+        # rect = cv.minAreaRect(contour)
+        # box = cv.boxPoints(rect)
+        # box = np.int0(box)
+        # cv.drawContours(resized_image, [box], 0, (255, 0, 0), 2)
+        # x, y, w, h = cv.boundingRect(contour)
+        # if x < xb or x > xb + wb or y > yb + hb or y + h < yb:
+        #     continue
+        #
+        # _, (width, height), _ = rect
+        # area = width * height
+        # boxes[(tuple(box[0]), tuple(box[1]), tuple(box[2]), tuple(box[3]))] = area
+        #
+        # approx = cv.approxPolyDP(contour, 0.01 * cv.arcLength(contour, True), True)
+        # rectangular_contours.append(approx)
 
-        approx = cv.approxPolyDP(contour, 0.01 * cv.arcLength(contour, True), True)
-        rectangular_contours.append(approx)
+    # if screenCnt is None:
+    #     return 'No license plate found'
+    # else:
+    #     print(screenCnt)
 
-
-    sorted_boxes = sorted(boxes.items(), key=lambda x: x[1])
-
-    warped = four_point_transform(clear_resized_image, sorted_boxes[0])
-
-    cv.imshow('warped', warped)
-
-
-    for rectangle in rectangular_contours:
-        cv.drawContours(empty, [rectangle], -1, (255, 255, 255), 1)
-        cv.drawContours(resized_image, [rectangle], -1, (255, 255, 255), cv.FILLED)
-
+    # sorted_boxes = sorted(boxes.items(), key=lambda x: x[1])
+    #
+    # warped = four_point_transform(clear_resized_image, sorted_boxes[0])
+    # print(sorted_boxes[0])
+    #
+    # # Create white mask
+    # warped_hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV)
+    # lower_white = np.array([0, 0, 100])
+    # upper_white = np.array([173, 30, 255])
+    # warped_hsv = cv.GaussianBlur(warped_hsv, (5, 5), 0)
+    # mask_white = cv.inRange(warped_hsv, lower_white, upper_white)
+    #
+    # mask_edges = cv.Canny(mask_white, 30, 255)
+    #
+    # # Add blur to the mask
+    # mask_contours, _ = cv.findContours(mask_white, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    # empty = np.zeros_like(warped)
+    # for contour in mask_contours:
+    #     if cv.contourArea(contour) > 8000:
+    #         cv.drawContours(empty, [contour], -1, (255, 255, 255), cv.FILLED)
+    #
+    # cv.imshow('warped', mask_edges)
+    #
+    # for rectangle in rectangular_contours:
+    #     cv.drawContours(empty, [rectangle], -1, (255, 255, 255), 1)
+    #     cv.drawContours(resized_image, [rectangle], -1, (255, 255, 255), cv.FILLED)
+    #
 
 
 
