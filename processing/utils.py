@@ -1,42 +1,31 @@
 import numpy as np
 import cv2 as cv
 
-def calculate_length(line):
-    x1, y1, x2, y2 = line[0]
-    return np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+def approximate_to_4_points(contour):
+    epsilon = 0.001 * cv.arcLength(contour, True)
+    while True:
+        approx = cv.approxPolyDP(contour, epsilon, True)
+        if len(approx) == 4:
+            return approx
+        epsilon += 0.001 * cv.arcLength(contour, True)
 
-def calculate_angle(line):
-    x1, y1, x2, y2 = line[0]
-    return np.arctan2(y2 - y1, x2 - x1) * 180. / np.pi
 
-def order_points(pts):
-    rect = np.zeros((4, 2), dtype="float32")
-    points = np.array(pts[0])
-    s = points.sum(axis=1)
-    rect[0] = points[np.argmin(s)]
-    rect[2] = points[np.argmax(s)]
-    diff = np.diff(points, axis=1)
-    rect[1] = points[np.argmin(diff)]
-    rect[3] = points[np.argmax(diff)]
+# Function to sort the points
+def sort_points(pts):
+    rect = np.zeros((4, 2), dtype = "float32")
+
+    # Sum of the points (top-left has the smallest sum, bottom-right has the largest sum)
+    pts = np.array(pts)
+    s = pts.sum(axis = 1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+
+    # Difference of the points (top-right has the smallest difference, bottom-left has the largest difference)
+    diff = np.diff(pts, axis = 1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+
     return rect
-
-def four_point_transform(image, pts):
-    rect = order_points(pts)
-    (tl, tr, br, bl) = rect
-    widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
-    widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
-    maxWidth = max(int(widthA), int(widthB))
-    heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
-    heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
-    maxHeight = max(int(heightA), int(heightB))
-    dst = np.array([
-        [0, 0],
-        [maxWidth - 1, 0],
-        [maxWidth - 1, maxHeight - 1],
-        [0, maxHeight - 1]], dtype="float32")
-    M = cv.getPerspectiveTransform(rect, dst)
-    warped = cv.warpPerspective(image, M, (maxWidth, maxHeight))
-    return warped
 
 def perform_processing(image: np.ndarray) -> str:
 
@@ -44,7 +33,6 @@ def perform_processing(image: np.ndarray) -> str:
     clear_resized_image = resized_image.copy()
     bw_image = cv.cvtColor(resized_image, cv.COLOR_BGR2GRAY)
     hsv_image = cv.cvtColor(resized_image, cv.COLOR_BGR2HSV)
-    empty = np.zeros_like(resized_image)
 
     # checking color on the license plate
     # def click_event(event, x, y, flags, param):
@@ -82,113 +70,44 @@ def perform_processing(image: np.ndarray) -> str:
 
     # Draw contours
     cv.drawContours(resized_image, contours, -1, (0, 255, 0), 2)
-    #cv.drawContours(empty, contours, -1, (255, 255, 255), cv.FILLED)
 
-
-    # Detect edges on bw image
-    bw_image = cv.GaussianBlur(bw_image, (5, 5), 0)
-    #bw_image = cv.medianBlur(bw_image, 5)
-
-    _, bw_image = cv.threshold(bw_image, 150, 255, cv.THRESH_OTSU)
-    bw_image = cv.GaussianBlur(bw_image, (5, 5), 0)
+    # Add bilateral filter to the image
+    bw_image = cv.bilateralFilter(bw_image, 5, 50, 50)
     cv.imshow('bw_image', bw_image)
-    edges = cv.Canny(bw_image, 30, 255)
-    edges = cv.dilate(edges, None, iterations=1)
+
+    edges = cv.Canny(bw_image, 30, 150)
+    edges = cv.dilate(edges, np.ones((3,3)), iterations=1)
 
     cv.imshow('edges', edges)
 
-    edge_contours, _ = cv.findContours(edges, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    edge_contours, _ = cv.findContours(edges, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE)
 
-    rectangular_contours = []
+    hulls = []
     xb, yb, wb, hb = cv.boundingRect(blue_contour)
-    boxes = {}
-
-    edge_contours = sorted(edge_contours, key=cv.contourArea, reverse=True)[:10]
     for contour in edge_contours:
-        # if cv.contourArea(contour) < 10e4:
-        #     continue
-        contour_len = cv.arcLength(contour, True)
-        img_for_contour = resized_image.copy()
-        approx = cv.approxPolyDP(contour, 0.0125 * contour_len, True)
-        cv.drawContours(img_for_contour, [approx], -1, (0, 0, 255), 2)
-        while True:
-            # cv.imshow('mask', mask)
-            cv.imshow('approx', img_for_contour)
-            key = cv.waitKey(0)
-            if key == ord('b'):
-                break
+        if cv.contourArea(contour) < 10e4:
+            continue
+        x, y, w, h = cv.boundingRect(contour)
+        if x < xb or x > xb + wb or y > yb + hb or y + h < yb:
+            continue
+        # Get contour as a polygon - fucking game changer
+        hull = cv.convexHull(contour)
+        hulls.append(hull)
 
-        if len(approx) == 4:
-            screenCnt = approx
-            break
-        # rect = cv.minAreaRect(contour)
-        # box = cv.boxPoints(rect)
-        # box = np.int0(box)
-        # cv.drawContours(resized_image, [box], 0, (255, 0, 0), 2)
-        # x, y, w, h = cv.boundingRect(contour)
-        # if x < xb or x > xb + wb or y > yb + hb or y + h < yb:
-        #     continue
-        #
-        # _, (width, height), _ = rect
-        # area = width * height
-        # boxes[(tuple(box[0]), tuple(box[1]), tuple(box[2]), tuple(box[3]))] = area
-        #
-        # approx = cv.approxPolyDP(contour, 0.01 * cv.arcLength(contour, True), True)
-        # rectangular_contours.append(approx)
+    hulls.sort(key=lambda x: cv.contourArea(x))
 
-    # if screenCnt is None:
-    #     return 'No license plate found'
-    # else:
-    #     print(screenCnt)
+    approx_4_points = approximate_to_4_points(hulls[0])
+    original_pts = [(approx_4_points[0][0][0], approx_4_points[0][0][1]),
+                    (approx_4_points[1][0][0], approx_4_points[1][0][1]),
+                    (approx_4_points[2][0][0], approx_4_points[2][0][1]),
+                    (approx_4_points[3][0][0], approx_4_points[3][0][1])]
+    sorted_original_pts = sort_points(original_pts)
+    new_pts = np.float32([(0, 0), (463, 0), (463, 99), (0, 99)])
+    matrix = cv.getPerspectiveTransform(sorted_original_pts, new_pts)
+    license_plate = cv.warpPerspective(resized_image, matrix, (464, 100))
+    cv.imshow("licence plate", license_plate)
 
-    # sorted_boxes = sorted(boxes.items(), key=lambda x: x[1])
-    #
-    # warped = four_point_transform(clear_resized_image, sorted_boxes[0])
-    # print(sorted_boxes[0])
-    #
-    # # Create white mask
-    # warped_hsv = cv.cvtColor(warped, cv.COLOR_BGR2HSV)
-    # lower_white = np.array([0, 0, 100])
-    # upper_white = np.array([173, 30, 255])
-    # warped_hsv = cv.GaussianBlur(warped_hsv, (5, 5), 0)
-    # mask_white = cv.inRange(warped_hsv, lower_white, upper_white)
-    #
-    # mask_edges = cv.Canny(mask_white, 30, 255)
-    #
-    # # Add blur to the mask
-    # mask_contours, _ = cv.findContours(mask_white, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    # empty = np.zeros_like(warped)
-    # for contour in mask_contours:
-    #     if cv.contourArea(contour) > 8000:
-    #         cv.drawContours(empty, [contour], -1, (255, 255, 255), cv.FILLED)
-    #
-    # cv.imshow('warped', mask_edges)
-    #
-    # for rectangle in rectangular_contours:
-    #     cv.drawContours(empty, [rectangle], -1, (255, 255, 255), 1)
-    #     cv.drawContours(resized_image, [rectangle], -1, (255, 255, 255), cv.FILLED)
-    #
-
-
-
-    # corners = cv.goodFeaturesToTrack(empty, 8, 0.01, 70)
-    # corners = np.int0(corners)
-    # for corner in corners:
-    #     x, y = corner.ravel()
-    #     cv.circle(resized_image, (x, y), 3, (0, 0, 255), -1)
-
-
-    # rho = 1
-    # theta = np.pi/180
-    # threshold = 25
-    # min_line_length = 200
-    # max_line_gap = 25
-    # lines = cv.HoughLinesP(edges, rho, theta, threshold, np.array([]), min_line_length, max_line_gap)
-    # print(lines)
-    # for line in lines:
-    #     x1, y1, x2, y2 = line[0]
-    #     cv.line(resized_image, (x1, y1), (x2, y2), (0, 0, 255), 2)
-    #cv.imshow('mask_contours', mask_contours)
+    cv.drawContours(resized_image, [approx_4_points], -1, (0, 0, 255), 2)
 
     while True:
         #cv.imshow('mask', mask)
