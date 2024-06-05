@@ -2,6 +2,8 @@ import cv2 as cv
 import numpy as np
 import os
 import elasticdeform
+from sklearn.ensemble import RandomForestClassifier
+import pickle
 
 def filter_image(image):
     deformed_image_filtered = cv.medianBlur(image, 5)
@@ -99,19 +101,35 @@ def main():
     # Train the model
     knn.train(images, cv.ml.ROW_SAMPLE, labels)
     # Save the model
-    knn.save("knn_model5.xml")
+    knn.save("knn_model6.xml")
 
     # Load the model
-    knn = cv.ml.KNearest_load("knn_model5.xml")
+    knn = cv.ml.KNearest_load("knn_model6.xml")
 
     # Write the accuracy of the model to the console
     print(images_validation.shape)
     _, result, _, _ = knn.findNearest(images_validation, 5)
     result = result.flatten()
     accuracy = np.mean(result == labels_validation)
-    for i in range(len(result)):
-        print(f"Predicted: {unique_chars[int(result[i])]}, Actual: {unique_chars[labels_validation[i]]}")
-    print(f"Accuracy on validation set: {accuracy}")
+    # for i in range(len(result)):
+    #     print(f"Predicted: {unique_chars[int(result[i])]}, Actual: {unique_chars[labels_validation[i]]}")
+    print(f"Accuracy on validation set using k-Nearest Neighbors: {accuracy}")
+
+    # Create a random forest model
+    random_forest = RandomForestClassifier(n_estimators=100)
+    # Train the model
+    random_forest.fit(images, labels)
+    # Save the model
+    with open("random_forest_model.pkl", "wb") as file:
+        pickle.dump(random_forest, file)
+
+    # Load the model
+    with open("random_forest_model.pkl", "rb") as file:
+        random_forest = pickle.load(file)
+
+    # Write the accuracy of the model to the console
+    accuracy = random_forest.score(images_validation, labels_validation)
+    print(f"Accuracy on validation set using Random Forest: {accuracy}")
 
 
 if __name__ == "__main__":

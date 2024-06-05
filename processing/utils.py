@@ -27,7 +27,7 @@ def sort_points(pts):
 
     return rect
 
-def perform_processing(image: np.ndarray, knn) -> str:
+def perform_processing(image: np.ndarray, knn, random_forest) -> str:
 
     resized_image = cv.resize(image, (1920, 1080))
     clear_resized_image = resized_image.copy()
@@ -134,6 +134,7 @@ def perform_processing(image: np.ndarray, knn) -> str:
     # Create a list of recognized contours
     recognized_contours = {}
     letters = 0
+    contours_width = {}
 
     for contour in contours:
         x, y, w, h = cv.boundingRect(contour)
@@ -165,7 +166,8 @@ def perform_processing(image: np.ndarray, knn) -> str:
             # Add the letter to the recognized_contours list with x coordinate
             # This allows to sort the order of the letters
             recognized_contours[x] = letter_image
-            print(letter_image.shape[0], letter_image.shape[1])
+            contours_width[x] = w
+            #print(letter_image.shape[0], letter_image.shape[1])
 
             # cv.imshow("licence plate", license_plate)
             letters += 1
@@ -178,6 +180,14 @@ def perform_processing(image: np.ndarray, knn) -> str:
             # key = cv.waitKey(0)
             # if key == ord('b'):
             #     break
+
+    # Go through each element of the contours and remove contours that are inside each other
+    for key in sorted(contours_width.keys()):
+        for key2 in sorted(contours_width.keys()):
+            if key != key2:
+                if key > key2 and key + contours_width[key] < key2 + contours_width[key2]:
+                    recognized_contours.pop(key)
+                    contours_width.pop(key)
 
     # Create a list of recognized characters
     recognized_characters = []
@@ -194,12 +204,16 @@ def perform_processing(image: np.ndarray, knn) -> str:
         print(f'Image shape: {im.shape}')
 
         # Find the nearest neighbors
-        _, result, _, _ = knn.findNearest(im, 5)
+        _, result, _, _ = knn.findNearest(im, 9)
         result = result.flatten()
+        result_random_forest = random_forest.predict(im)
         #print(f'Result: {result}')
         # Get the character
         character = unique_chars[int(result[0])]
-        print(f'Character: {character}')
+        character_random_forest = unique_chars[int(result_random_forest[0])]
+
+        print(f'Character using KNN: {character}')
+        print(f'Character using Random Forest: {character_random_forest}')
         recognized_characters.append(character)
 
 
@@ -211,6 +225,30 @@ def perform_processing(image: np.ndarray, knn) -> str:
     cv.imshow("licence plate", license_plate)
     if len(recognized_characters) > 8:
         recognized_characters = recognized_characters[:8]
+
+    # Replace the characters with the correct ones
+    for i in range(2):
+        if recognized_characters[i] == '0':
+            recognized_characters[i] = 'O'
+        if recognized_characters[i] == '1':
+            recognized_characters[i] = 'I'
+        if recognized_characters[i] == '2':
+            recognized_characters[i] = 'Z'
+        if recognized_characters[i] == '3':
+            recognized_characters[i] = 'E'
+        if recognized_characters[i] == '4':
+            recognized_characters[i] = 'A'
+        if recognized_characters[i] == '5':
+            recognized_characters[i] = 'S'
+        if recognized_characters[i] == '6':
+            recognized_characters[i] = 'G'
+        if recognized_characters[i] == '7':
+            recognized_characters[i] = 'Z'
+        if recognized_characters[i] == '8':
+            recognized_characters[i] = 'B'
+        if recognized_characters[i] == '9':
+            recognized_characters[i] = 'G'
+
     plate = ''.join(recognized_characters)
 
     # while True:
