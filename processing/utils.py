@@ -27,28 +27,7 @@ def sort_points(pts):
 
     return rect
 
-def skeletonize(image):
-    size = np.size(image)
-    skel = np.zeros(image.shape, np.uint8)
-
-    ret, img = cv.threshold(image, 127, 255, 0)
-    element = cv.getStructuringElement(cv.MORPH_CROSS, (3, 3))
-    done = False
-
-    while not done:
-        eroded = cv.erode(img, element)
-        temp = cv.dilate(eroded, element)
-        temp = cv.subtract(img, temp)
-        skel = cv.bitwise_or(skel, temp)
-        img = eroded.copy()
-
-        zeros = size - cv.countNonZero(img)
-        if zeros == size:
-            done = True
-
-    return skel
-
-def perform_processing(image: np.ndarray) -> str:
+def perform_processing(image: np.ndarray, knn) -> str:
 
     resized_image = cv.resize(image, (1920, 1080))
     clear_resized_image = resized_image.copy()
@@ -81,12 +60,15 @@ def perform_processing(image: np.ndarray) -> str:
 
     # Find contours
     contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours_copy = contours
     # Remove small contours
     contours = [contour for contour in contours if cv.contourArea(contour) > 1000]
     # Remove contours that are too wide
     contours = [contour for contour in contours if cv.boundingRect(contour)[2] < 0.2 * resized_image.shape[1]]
     # Remove contours that are wider than they are tall
     contours = [contour for contour in contours if cv.boundingRect(contour)[2] < 1.2 * cv.boundingRect(contour)[3]]
+    if len(contours) == 0:
+        contours = contours_copy
     blue_contour = max(contours, key=cv.contourArea)
 
     # Draw contours
@@ -94,13 +76,14 @@ def perform_processing(image: np.ndarray) -> str:
 
     # Add bilateral filter to the image
     bw_image = cv.bilateralFilter(bw_image, 5, 50, 50)
-    cv.imshow('bw_image', bw_image)
+    # cv.imshow('bw_image', bw_image)
 
     # Add canny edge detection
     edges = cv.Canny(bw_image, 30, 150)
     edges = cv.dilate(edges, np.ones((3,3)), iterations=1)
 
-    cv.imshow('edges', edges)
+    # cv.imshow('edges', edges)
+    # cv.waitKey(0)
 
     # Find contours of the edges
     edge_contours, _ = cv.findContours(edges, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE)
@@ -120,6 +103,10 @@ def perform_processing(image: np.ndarray) -> str:
         hull = cv.convexHull(contour)
         hulls.append(hull)
 
+    if len(hulls) == 0:
+        print('No hulls found')
+        return 'PO12345'
+
     # Sort hulls to get the smallest one - the one that is around the license plate - and extract it corners
     hulls.sort(key=lambda x: cv.contourArea(x))
     approx_4_points = approximate_to_4_points(hulls[0])
@@ -137,6 +124,7 @@ def perform_processing(image: np.ndarray) -> str:
     cv.drawContours(resized_image, [approx_4_points], -1, (0, 0, 255), 2)
 
     license_plate_hsv = cv.cvtColor(license_plate, cv.COLOR_BGR2HSV)
+    license_plate_bw = cv.cvtColor(license_plate, cv.COLOR_BGR2GRAY)
     license_plate_v = license_plate_hsv[:, :, 2]
 
     license_plate_v = cv.bilateralFilter(license_plate_v, 5, 50, 50)
@@ -144,7 +132,8 @@ def perform_processing(image: np.ndarray) -> str:
     contours, _ = cv.findContours(license_plate_v, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
     # Create a list of recognized contours
-    recognized_contours = []
+    recognized_contours = {}
+    letters = 0
 
     for contour in contours:
         x, y, w, h = cv.boundingRect(contour)
@@ -152,10 +141,34 @@ def perform_processing(image: np.ndarray) -> str:
             cv.drawContours(license_plate, [contour], -1, (255, 0, 0), 2)
             # Draw the bounding rectangle
             cv.rectangle(license_plate, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            # Skeletonize the image
-            skeleton = skeletonize(license_plate_v[y:y+h, x:x+w])
-            cv.imshow('skeleton', skeleton)
-            cv.imshow("licence plate", license_plate)
+
+            letter_image = license_plate_bw[y:y+h, x:x+w]
+            # Get the original width and height of the letter image
+            original_height, original_width = letter_image.shape
+            letter_image = cv.resize(letter_image, (0, 0), fx=90/original_height, fy=90/original_height)
+            mean = np.mean(letter_image)
+            _, letter_image = cv.threshold(letter_image, mean-10, 255, cv.THRESH_BINARY)
+            letter_image = cv.bitwise_not(letter_image)
+            letter_image = cv.morphologyEx(letter_image, cv.MORPH_OPEN, np.ones((3, 3), np.uint8))
+
+            # Add padding to the image
+            letter_image_height, letter_image_width = letter_image.shape
+            padding = 66 - letter_image_width
+            if padding < 0:
+                letter_image = cv.resize(letter_image, (66, 90))
+            else:
+                if padding % 2 == 0:
+                    letter_image = cv.copyMakeBorder(letter_image, 0, 0, int(padding/2), int(padding/2), cv.BORDER_CONSTANT, value=0)
+                else:
+                    letter_image = cv.copyMakeBorder(letter_image, 0, 0, int(np.floor(padding/2)), int(np.floor(padding/2))+1, cv.BORDER_CONSTANT, value=0)
+
+            # Add the letter to the recognized_contours list with x coordinate
+            # This allows to sort the order of the letters
+            recognized_contours[x] = letter_image
+            print(letter_image.shape[0], letter_image.shape[1])
+
+            # cv.imshow("licence plate", license_plate)
+            letters += 1
 
             #TODO - recognize the characters from the license plate and add them to the recognized_contours list
             # recognized_contours.append(character)
@@ -166,20 +179,50 @@ def perform_processing(image: np.ndarray) -> str:
             # if key == ord('b'):
             #     break
 
-    cv.imshow('license_plate_v', license_plate_v)
+    # Create a list of recognized characters
+    recognized_characters = []
+    unique_chars = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
+                            'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
+    char_to_int = {char: i for i, char in enumerate(unique_chars)}
+
+    for key in sorted(recognized_contours.keys()):
+
+        im = recognized_contours[key].flatten()
+        im = np.array(im)
+        im = im.astype(np.float32)
+        im = im.reshape(1, -1)
+        print(f'Image shape: {im.shape}')
+
+        # Find the nearest neighbors
+        _, result, _, _ = knn.findNearest(im, 5)
+        result = result.flatten()
+        #print(f'Result: {result}')
+        # Get the character
+        character = unique_chars[int(result[0])]
+        print(f'Character: {character}')
+        recognized_characters.append(character)
+
+
+        cv.imshow('recognized_contours', recognized_contours[key])
+        # cv.waitKey(0)
+
+    print(f'Letters: {letters}')
+    # cv.imshow('license_plate_v', license_plate_v)
     cv.imshow("licence plate", license_plate)
+    if len(recognized_characters) > 8:
+        recognized_characters = recognized_characters[:8]
+    plate = ''.join(recognized_characters)
 
-
-    while True:
-        #cv.imshow('mask', mask)
-        cv.imshow('image', resized_image)
-        # Comment the lines below when not testing manually
-        key = cv.waitKey(0)
-        if key == ord('a'):
-            break
+    # while True:
+    #     #cv.imshow('mask', mask)
+    #     cv.imshow('image', resized_image)
+    #     # Comment the lines below when not testing manually
+    #     # key = cv.waitKey(0)
+    #     # if key == ord('a'):
+    #     #     break
 
     print(f'image.shape: {image.shape}')
     #TODO: add image processing here
     # return plate
 
-    return 'PO12345'
+    return plate

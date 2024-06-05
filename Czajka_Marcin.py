@@ -17,6 +17,11 @@ def main():
     results_file = Path(args.results_file)
 
     images_paths = sorted([image_path for image_path in images_dir.iterdir() if image_path.name.endswith('.jpg')])
+
+    # Load the KNN model
+    #knn = cv2.ml.KNearest_load("./processing/knn_model4.xml")
+    knn = cv2.ml.KNearest_load("./pictures/knn_model5.xml")
+
     results = {}
     for image_path in images_paths:
         image = cv2.imread(str(image_path))
@@ -24,7 +29,7 @@ def main():
             print(f'Error loading image {image_path}')
             continue
 
-        results[image_path.name] = perform_processing(image)
+        results[image_path.name] = perform_processing(image, knn)
 
     with results_file.open('w') as output_file:
         json.dump(results, output_file, indent=4)
