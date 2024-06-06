@@ -251,13 +251,13 @@ def perform_processing(image: np.ndarray, knn, random_forest) -> str:
 
     plate = ''.join(recognized_characters)
 
-    # while True:
-    #     #cv.imshow('mask', mask)
-    #     cv.imshow('image', resized_image)
-    #     # Comment the lines below when not testing manually
-    #     # key = cv.waitKey(0)
-    #     # if key == ord('a'):
-    #     #     break
+    while True:
+        #cv.imshow('mask', mask)
+        cv.imshow('image', resized_image)
+        # Comment the lines below when not testing manually
+        key = cv.waitKey(0)
+        if key == ord('a'):
+            break
 
     print(f'image.shape: {image.shape}')
     #TODO: add image processing here

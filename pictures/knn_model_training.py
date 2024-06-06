@@ -101,10 +101,10 @@ def main():
     # Train the model
     knn.train(images, cv.ml.ROW_SAMPLE, labels)
     # Save the model
-    knn.save("knn_model6.xml")
+    knn.save("knn_model5.xml")
 
     # Load the model
-    knn = cv.ml.KNearest_load("knn_model6.xml")
+    knn = cv.ml.KNearest_load("knn_model5.xml")
 
     # Write the accuracy of the model to the console
     print(images_validation.shape)
