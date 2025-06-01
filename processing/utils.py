@@ -28,22 +28,20 @@ def sort_points(pts):
     return rect
 
 def perform_processing(image: np.ndarray, knn, random_forest) -> str:
-
     resized_image = cv.resize(image, (1920, 1080))
-    clear_resized_image = resized_image.copy()
     bw_image = cv.cvtColor(resized_image, cv.COLOR_BGR2GRAY)
     hsv_image = cv.cvtColor(resized_image, cv.COLOR_BGR2HSV)
 
     # checking color on the license plate
-    # def click_event(event, x, y, flags, param):
-    #     if event == cv.EVENT_LBUTTONDOWN:
-    #         print(hsv_image[y, x])
-    # while True:
-    #     cv.imshow('image', hsv_image)
-    #     cv.setMouseCallback('image', click_event)
-    #     key = cv.waitKey(0)
-    #     if key == ord('a'):
-    #         break
+    def click_event(event, x, y, flags, param):
+        if event == cv.EVENT_LBUTTONDOWN:
+            print(hsv_image[y, x])
+    while True:
+        cv.imshow('colored-image-hsv', hsv_image)
+        cv.setMouseCallback('colored-image-hsv', click_event)
+        key = cv.waitKey(0)
+        if key == ord('a'):
+            break
 
     # From the above code (I've checked 322 pixels in total across 26 pictures) the results are:
     # for the blue color:
@@ -54,9 +52,17 @@ def perform_processing(image: np.ndarray, knn, random_forest) -> str:
     upper_blue = np.array([113, 255, 227])
     mask = cv.inRange(hsv_image, lower_blue, upper_blue)
 
+    cv.imshow('mask', mask)
+    cv.waitKey(0)
+
+
     # Closing the mask
     kernel = np.ones((7, 7), np.uint8)
     mask = cv.morphologyEx(mask, cv.MORPH_CLOSE, kernel)
+
+    cv.imshow('mask-morphological', mask)
+    cv.waitKey(0)
+
 
     # Find contours
     contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
@@ -172,14 +178,6 @@ def perform_processing(image: np.ndarray, knn, random_forest) -> str:
             # cv.imshow("licence plate", license_plate)
             letters += 1
 
-            #TODO - recognize the characters from the license plate and add them to the recognized_contours list
-            # recognized_contours.append(character)
-            # create a string from the recognized_contours list
-            # plate = ''.join(recognized_contours)
-
-            # key = cv.waitKey(0)
-            # if key == ord('b'):
-            #     break
 
     # Go through each element of the contours and remove contours that are inside each other
     for key in sorted(contours_width.keys()):
@@ -193,10 +191,8 @@ def perform_processing(image: np.ndarray, knn, random_forest) -> str:
     recognized_characters = []
     unique_chars = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
                             'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
-    char_to_int = {char: i for i, char in enumerate(unique_chars)}
 
     for key in sorted(recognized_contours.keys()):
-
         im = recognized_contours[key].flatten()
         im = np.array(im)
         im = im.astype(np.float32)
@@ -207,7 +203,7 @@ def perform_processing(image: np.ndarray, knn, random_forest) -> str:
         _, result, _, _ = knn.findNearest(im, 9)
         result = result.flatten()
         result_random_forest = random_forest.predict(im)
-        #print(f'Result: {result}')
+
         # Get the character
         character = unique_chars[int(result[0])]
         character_random_forest = unique_chars[int(result_random_forest[0])]
@@ -218,7 +214,7 @@ def perform_processing(image: np.ndarray, knn, random_forest) -> str:
 
 
         cv.imshow('recognized_contours', recognized_contours[key])
-        # cv.waitKey(0)
+        cv.waitKey(0)
 
     print(f'Letters: {letters}')
     # cv.imshow('license_plate_v', license_plate_v)
@@ -260,7 +256,4 @@ def perform_processing(image: np.ndarray, knn, random_forest) -> str:
             break
 
     print(f'image.shape: {image.shape}')
-    #TODO: add image processing here
-    # return plate
-
     return plate

@@ -1,3 +1,9 @@
+# Loads labeled images of characters
+# Applies random transformations to make the model robust
+# Trains two models (KNN and Random Forest)
+# Saves them for use during actual license plate recognition
+# Checks how accurate they are on unseen data
+
 import cv2 as cv
 import numpy as np
 import os
@@ -5,11 +11,20 @@ import elasticdeform
 from sklearn.ensemble import RandomForestClassifier
 import pickle
 
+
+
+# Cleans the image by:
+#   Blurring: Smooths noise (with medianBlur)
+#   Thresholding: Turns grayscale image into black and white (binary) format
 def filter_image(image):
     deformed_image_filtered = cv.medianBlur(image, 5)
     _, deformed_image_filtered_1 = cv.threshold(deformed_image_filtered, 20, 255, cv.THRESH_BINARY)
     return deformed_image_filtered_1
 
+
+# takes an image and squeezes it horizontally
+# by a random factor between -0.05 and 0.05
+# ( squeezing it horizontally means that the image is compressed in the horizontal direction ) [----] => [ -- ]
 def squeeze_image(image):
     # Get the height and width of the image
     height, width = image.shape
@@ -18,6 +33,7 @@ def squeeze_image(image):
     src_pts = np.float32([[0, 0], [width, 0], [0, height], [width, height]])
 
     squeeze_factor = (np.random.rand() - 0.5) * 0.06
+    squeeze_factor = max(-0.05, min(0.05, squeeze_factor))  # Constrain squeeze_factor to [-0.05, 0.05]
 
     # Define the destination points
     dst_pts = np.float32([[width * squeeze_factor, 0], [width * (1-squeeze_factor), 0], [width * squeeze_factor, height], [width * (1-squeeze_factor), height]])
@@ -27,14 +43,21 @@ def squeeze_image(image):
 
     # Apply the transformation
     squeezed_image = cv.warpPerspective(image, matrix, (width, height))
-
     return squeezed_image
 
-def main():
-    #letters_and_numbers = []
-    letters_and_numbers = os.listdir(".")
 
-    # Lists to store the images and the labels
+
+# - creates a tranning set and trains a KNN and Random Forest model and stores them in files 
+#   knn_model5.xml and random_forest_model.pkl
+# - then creates a validation set and tests the models on it to print the accuracy
+def main():
+    # Only include .png files in the current directory
+    letters_and_numbers = [f for f in os.listdir("./pictures") if f.lower().endswith(".png")]
+    if not letters_and_numbers:
+        print("No .png files found in the current directory! Exiting.")
+        return
+
+    # Lists to store the images and the labels for traning set
     images = []
     labels = []
 
@@ -42,17 +65,21 @@ def main():
     images_validation = []
     labels_validation = []
 
+
+    # for each image, deform it and filter it randomly 50 times 
+    # and 10 times for validation set
     for file in letters_and_numbers:
         if file.endswith(".png"):
+            file_path = os.path.join("./pictures", file)
             if file[1] == "_":
-                image = cv.imread(file, cv.IMREAD_GRAYSCALE)
+                image = cv.imread(file_path, cv.IMREAD_GRAYSCALE)
             else:
-                image = cv.imread(file, cv.IMREAD_GRAYSCALE)
+                image = cv.imread(file_path, cv.IMREAD_GRAYSCALE)
                 # Resize the image - 80 is height of letters on the license plate and 173 is the height of the letter on image
                 image = cv.resize(image, (0, 0), fx=80/173, fy=80/173)
                 # change colors (black to white, white to black)
                 image = cv.bitwise_not(image)
-            print(file)
+      
             for i in range(0, 50):
                 # Random rotation (-10; 10), zoom (0.9; 1.1) and number of points (5; 15)
                 rotation = (np.random.rand() - 0.5) * 20
